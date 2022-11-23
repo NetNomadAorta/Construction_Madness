@@ -24,7 +24,7 @@ SAVE_NAME      = "./Models/Construction.model"
 USE_CHECKPOINT = True
 DATASET_PATH   = "./Training_Data/" + SAVE_NAME.split("./Models/",1)[1].split(".model",1)[0] +"/"
 NUMBER_EPOCH   = 10000
-BATCH_SIZE     = 16
+BATCH_SIZE     = 8
 LEARNING_RATE  = 0.0005*BATCH_SIZE 
 
 # Transformation Parameters:
