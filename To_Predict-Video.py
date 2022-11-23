@@ -46,6 +46,17 @@ def deleteDirContents(dir):
             os.remove(full_path)
 
 
+def make_appropriate_directory():
+    if not os.path.exists(TO_PREDICT_PATH):
+        os.makedirs(TO_PREDICT_PATH)
+    if not os.path.exists(PREDICTED_PATH):
+        os.makedirs(PREDICTED_PATH)
+    if not os.path.exists("./Models/"):
+        os.makedirs("./Models/")
+    if not os.path.exists("./Training_Data/"):
+        os.makedirs("./Training_Data/")
+
+
 # Creates class folder
 def makeDir(dir, classes_2):
     for classIndex, className in enumerate(classes_2):
@@ -55,6 +66,8 @@ def makeDir(dir, classes_2):
 
 # Starting stopwatch to see how long process takes
 start_time = time.time()
+
+make_appropriate_directory()
 
 # Deletes images already in "Predicted_Images" folder
 deleteDirContents(PREDICTED_PATH)

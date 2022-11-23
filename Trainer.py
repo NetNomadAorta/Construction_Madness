@@ -50,6 +50,14 @@ def time_convert(sec):
     print("Time Lapsed = {0}h:{1}m:{2}s".format(int(hours), int(mins), round(sec) ) )
 
 
+def make_appropriate_directory():
+    if not os.path.exists("./Models/"):
+        os.makedirs("./Models/")
+    if not os.path.exists("./Training_Data/"):
+        os.makedirs("./Training_Data/")
+
+
+
 def get_transforms(train=False):
     if train:
         transform = A.Compose([
@@ -137,6 +145,8 @@ class Object_Detection(datasets.VisionDataset):
 
 # Starting stopwatch to see how long process takes
 start_time = time.time()
+
+make_appropriate_directory()
 
 torch.cuda.empty_cache()
 
