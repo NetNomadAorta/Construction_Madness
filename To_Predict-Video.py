@@ -259,12 +259,14 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                             is_person_close = True
                     
                     if is_person_close:
-                        labels_found.append("Person TOO CLOSE")
+                        labels_found.append("PERSON")
                         break
                 
                 if is_person_close == False:
                     labels_found.append( str(classes_1[class_index]) )
             else:
+                if class_index == 2:
+                    dieCoordinates[index] = 0
                 labels_found.append( str(classes_1[class_index]) )
         
         
@@ -273,8 +275,6 @@ for video_name in os.listdir(TO_PREDICT_PATH):
         if SAVE_ANNOTATED_IMAGES:
             predicted_image = draw_bounding_boxes(transformed_image,
                 boxes = dieCoordinates,
-                # labels = [classes_1[i] for i in die_class_indexes], 
-                # labels = [str(round(i,2)) for i in die_scores], # SHOWS SCORE IN LABEL
                 width = line_width,
                 colors = [color_list[i] for i in die_class_indexes],
                 font = "arial.ttf",
@@ -285,6 +285,7 @@ for video_name in os.listdir(TO_PREDICT_PATH):
             predicted_image_cv2 = cv2.cvtColor(predicted_image_cv2, cv2.COLOR_RGB2BGR)
             
             for dieCoordinate_index, dieCoordinate in enumerate(dieCoordinates):
+                text = labels_found[dieCoordinate_index]
                 start_point = ( int(dieCoordinate[0]), int(dieCoordinate[1]) )
                 # end_point = ( int(dieCoordinate[2]), int(dieCoordinate[3]) )
                 color = (255, 255, 255)
@@ -293,14 +294,20 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                 
                 start_point_text = (start_point[0], max(start_point[1]-5,0) )
                 font = cv2.FONT_HERSHEY_SIMPLEX
-                if labels_found[dieCoordinate_index] == "Person TOO CLOSE":
+                if text == "PERSON":
                     color = (0, 0, 255)
                     fontScale = 0.60
                     thickness = 2
                 else:
+                    if text != "Person" or text != "Machinery-Base":
+                        text = ""
+                    elif text == "Machinery-Base":
+                        text = "Machinery"
+                    
                     color = (255, 255, 255)
                     fontScale = 0.30
                     thickness = 1
+                
                 cv2.putText(predicted_image_cv2, labels_found[dieCoordinate_index], 
                             start_point_text, font, fontScale, color, thickness)
             
