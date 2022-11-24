@@ -1,4 +1,5 @@
 import os
+import sys
 import torch
 from torchvision import models
 import re
@@ -14,6 +15,7 @@ from pycocotools.coco import COCO
 from albumentations.pytorch import ToTensorV2
 import shutil
 from math import sqrt
+import numpy as np
 
 
 # User parameters
@@ -21,9 +23,6 @@ SAVE_NAME_OD = "./Models/Construction.model"
 DATASET_PATH = "./Training_Data/" + SAVE_NAME_OD.split("./Models/",1)[1].split(".model",1)[0] +"/"
 TO_PREDICT_PATH         = "./Images/Prediction_Images/To_Predict/"
 PREDICTED_PATH          = "./Images/Prediction_Images/Predicted_Images/"
-SAVE_ANNOTATED_IMAGES   = True
-SAVE_ORIGINAL_IMAGE     = False
-SAVE_CROPPED_IMAGES     = False
 DIE_SPACING_SCALE       = 0.99
 MIN_SCORE               = 0.6 # Default 0.5
 
@@ -64,9 +63,12 @@ def makeDir(dir, classes_2):
         os.makedirs(dir + className, exist_ok=True)
 
 
-def hypotenuse(a, b):
-    c = sqrt(a**2 + b**2)
-    return c
+def writes_text(text, start_point_index, font, font_scale, color, thickness):
+    start_point = (predicted_image_cv2.shape[1]-300, 
+                   50 + 30*start_point_index
+                   )
+    cv2.putText(predicted_image_cv2, text,  start_point, 
+                font, font_scale, color, thickness)
 
 
 
@@ -138,7 +140,7 @@ for video_name in os.listdir(TO_PREDICT_PATH):
     # Video frame count and fps needed for VideoWriter settings
     frame_count = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
     video_fps = round( video_capture.get(cv2.CAP_PROP_FPS) )
-    video_fps = int(video_fps/4)
+    video_fps = int(video_fps/5)
     
     # If successful and image of frame
     success, image_b4_color = video_capture.read()
@@ -150,15 +152,12 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                                  )
                                 )
     
+    workers_in_frame_list = []
     count = 1
     while success:
         success, image_b4_color = video_capture.read()
         if not success:
             break
-        
-        # if count % 6 != 0:
-        #     count += 1
-        #     continue
         
         image = cv2.cvtColor(image_b4_color, cv2.COLOR_BGR2RGB)
         
@@ -185,13 +184,15 @@ for video_name in os.listdir(TO_PREDICT_PATH):
         machine_whole_coordinates = dieCoordinates[die_class_indexes == 2]
         
         # Sees if person close to machine base
+        # ---------------------------------------------------------------------
         for index, class_index in enumerate(die_class_indexes):
             if class_index == 3: # If class is person
                 left_coordinate_person = dieCoordinates[index][0]
                 right_coordinate_person = dieCoordinates[index][2]
                 mid_x_coordinate_person = right_coordinate_person-left_coordinate_person
+                top_coordinate_person = dieCoordinates[index][1]
                 bottom_coordinate_person = dieCoordinates[index][3]
-                person_height = int(dieCoordinates[index][1] - bottom_coordinate_person)
+                person_height = int(bottom_coordinate_person - top_coordinate_person)
                 
                 is_person_close = False
                 
@@ -202,64 +203,33 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                     bottom_coordinate_machine = machine_base_coordinate[3]
                     mid_vert_coord_machine = (top_coordinate_machine - bottom_coordinate_machine)/2
                     
+                    rect1 = {'x':left_coordinate_person, 'y':top_coordinate_person, 
+                             'w':(right_coordinate_person-left_coordinate_person), 
+                             'h':(bottom_coordinate_person-top_coordinate_person)}
                     
-                    dist_ppl_mchn_left = left_coordinate_person - right_coordinate_machine
-                    dist_ppl_mchn_right = left_coordinate_machine - right_coordinate_person
-                    dist_ppl_mchn_mid_left = left_coordinate_machine - mid_x_coordinate_person
-                    dist_ppl_mchn_mid_right = mid_x_coordinate_person - right_coordinate_machine
-                    dist_ppl_mchn_top = top_coordinate_machine - bottom_coordinate_person
-                    dist_ppl_mchn_bottom = bottom_coordinate_person - bottom_coordinate_machine
+                    rect2 = {'x':left_coordinate_machine, 'y':top_coordinate_machine, 
+                             'w':(right_coordinate_machine-left_coordinate_machine), 
+                             'h':(bottom_coordinate_machine-top_coordinate_machine)}
                     
-                    if (dist_ppl_mchn_left < 0
-                        and dist_ppl_mchn_right < 0
-                        and dist_ppl_mchn_top < 0
-                        and dist_ppl_mchn_bottom < 0
-                        ):
+                    min_width = int(min(rect1['x']+rect1['w']-rect2['x'],rect2['x']+rect2['w']-rect1['x']))
+                    min_height = int(min(rect1['y']+rect1['h']-rect2['y'],rect2['y']+rect2['h']-rect1['y']))
+                    
+                    
+                    # If person's feet within machine-base, then to flag
+                    if min_width > 0 and min_height > 0:
                         is_person_close = True
+                    
                     else:
                         
-                        if (dist_ppl_mchn_left < 0
-                            and dist_ppl_mchn_right < 0
-                            ):
-                            dist_ppl_mchn_left = 0
-                            dist_ppl_mchn_right = 0
-                            dist_ppl_mchn_mid_left = 0
-                            dist_ppl_mchn_mid_right = 0
+                        hypotenuse = sqrt(min_width**2 + min_height**2)
                         
-                        if (dist_ppl_mchn_top < 0
-                            and dist_ppl_mchn_bottom < 0
-                            ):
-                            dist_ppl_mchn_top = 0
-                            dist_ppl_mchn_bottom = 0
-                        
-                        # hypotenuse or distance between machine base and person's 
-                        #  feet is related to c^2 = a^2 + b^2
-                        hypotenuse_left = hypotenuse( 
-                            abs(dist_ppl_mchn_left), 
-                            abs(mid_vert_coord_machine - bottom_coordinate_person)
-                            )
-                        hypotenuse_right = hypotenuse( 
-                            abs(dist_ppl_mchn_right), 
-                            abs(mid_vert_coord_machine - bottom_coordinate_person)
-                            )
-                        hypotenuse_top = hypotenuse( 
-                            abs(dist_ppl_mchn_mid_left), 
-                            abs(dist_ppl_mchn_top)
-                            )
-                        hypotenuse_bottom = hypotenuse( 
-                            abs(dist_ppl_mchn_mid_right), 
-                            abs(dist_ppl_mchn_bottom)
-                            )
-                        
-                        min_hypotenuse = min(hypotenuse_left, hypotenuse_right,
-                                             hypotenuse_top, hypotenuse_bottom)
-                    
-                    
-                        if min_hypotenuse < person_height:
+                        # if person's feet is close to machine-base, then to flag
+                        if hypotenuse < (person_height*2/3):
                             is_person_close = True
+                            
                     
                     if is_person_close:
-                        labels_found.append("PERSON")
+                        labels_found.append("CAUTION")
                         break
                 
                 if is_person_close == False:
@@ -267,52 +237,82 @@ for video_name in os.listdir(TO_PREDICT_PATH):
             else:
                 if class_index == 2:
                     dieCoordinates[index] = 0
+                
                 labels_found.append( str(classes_1[class_index]) )
         
+        # ---------------------------------------------------------------------
+        
+        predicted_image = draw_bounding_boxes(transformed_image,
+            boxes = dieCoordinates,
+            width = line_width,
+            colors = [color_list[i] for i in die_class_indexes],
+            font = "arial.ttf",
+            font_size = 10
+            )
+        
+        predicted_image_cv2 = predicted_image.permute(1,2,0).contiguous().numpy()
+        predicted_image_cv2 = cv2.cvtColor(predicted_image_cv2, cv2.COLOR_RGB2BGR)
         
         
+        # Gets worker and machinery info
+        workers_in_frame_list.append(len(ppl_coordinates))
+        min_workers = min(workers_in_frame_list)
+        max_workers = max(workers_in_frame_list)
+        avg_workers = round(np.mean(workers_in_frame_list))
         
-        if SAVE_ANNOTATED_IMAGES:
-            predicted_image = draw_bounding_boxes(transformed_image,
-                boxes = dieCoordinates,
-                width = line_width,
-                colors = [color_list[i] for i in die_class_indexes],
-                font = "arial.ttf",
-                font_size = 10
-                )
+        # Writes worker and machinery info on top right of video
+        # ----------------------------Start-----------------------------------
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.8
+        color = (0, 0, 255)
+        thickness = 2
+        
+        # Writes text: workers in frame
+        text = "Workers in Frame: " + str(workers_in_frame_list[-1])
+        writes_text(text, 0, font, font_scale, color, thickness)
+        
+        # Writes text: min workers
+        text = "Min Workers: " + str(min_workers)
+        writes_text(text, 1, font, font_scale, color, thickness)
+        
+        # Writes text: max workers
+        text = "Max Workers: " + str(max_workers)
+        writes_text(text, 2, font, font_scale, color, thickness)
+        
+        # Writes text: avg workers
+        text = "Avg Workers: " + str(avg_workers)
+        writes_text(text, 3, font, font_scale, color, thickness)
+        
+        # ----------------------------End--------------------------------------
+        
+        
+        # Writes bounding box's (BB) identity text on top left of BB
+        for dieCoordinate_index, dieCoordinate in enumerate(dieCoordinates):
+            text = labels_found[dieCoordinate_index]
+            start_point = ( int(dieCoordinate[0]), int(dieCoordinate[1]) )
+            color = (255, 255, 255)
             
-            predicted_image_cv2 = predicted_image.permute(1,2,0).contiguous().numpy()
-            predicted_image_cv2 = cv2.cvtColor(predicted_image_cv2, cv2.COLOR_RGB2BGR)
-            
-            for dieCoordinate_index, dieCoordinate in enumerate(dieCoordinates):
-                text = labels_found[dieCoordinate_index]
-                start_point = ( int(dieCoordinate[0]), int(dieCoordinate[1]) )
-                # end_point = ( int(dieCoordinate[2]), int(dieCoordinate[3]) )
+            start_point_text = (start_point[0], max(start_point[1]-5,0) )
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            if "CAUTION" in text:
+                color = (0, 0, 255)
+                fontScale = 0.60
+                thickness = 1
+            else:
+                if text != "Person" and text != "Machinery-Base":
+                    text = ""
+                elif text == "Machinery-Base":
+                    text = "Machinery"
+                
                 color = (255, 255, 255)
-                # thickness = 3
-                # cv2.rectangle(predicted_image_cv2, start_point, end_point, color, thickness)
-                
-                start_point_text = (start_point[0], max(start_point[1]-5,0) )
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                if text == "PERSON":
-                    color = (0, 0, 255)
-                    fontScale = 0.60
-                    thickness = 2
-                else:
-                    if text != "Person" or text != "Machinery-Base":
-                        text = ""
-                    elif text == "Machinery-Base":
-                        text = "Machinery"
-                    
-                    color = (255, 255, 255)
-                    fontScale = 0.30
-                    thickness = 1
-                
-                cv2.putText(predicted_image_cv2, labels_found[dieCoordinate_index], 
-                            start_point_text, font, fontScale, color, thickness)
+                fontScale = 0.30
+                thickness = 1
             
-            # Saves video with bounding boxes
-            video_out.write(predicted_image_cv2)
+            cv2.putText(predicted_image_cv2, text, 
+                        start_point_text, font, fontScale, color, thickness)
+        
+        # Saves video with bounding boxes
+        video_out.write(predicted_image_cv2)
         
         
         tenScale = 10
@@ -321,13 +321,27 @@ for video_name in os.listdir(TO_PREDICT_PATH):
         if ii % tenScale == 0:
             fps_end_time = time.time()
             fps_time_lapsed = fps_end_time - fps_start_time
+            fps = round(tenScale/fps_time_lapsed, 2)
+            time_left = round( (frame_count-ii)/fps )
+            
+            mins = time_left // 60
+            sec = time_left % 60
+            hours = mins // 60
+            mins = mins % 60
+            
+            sys.stdout.write('\033[2K\033[1G')
             print("  " + str(ii) + " of " 
                   + str(frame_count), 
-                  "-",  round(tenScale/fps_time_lapsed, 2), "FPS")
+                  "-", fps, "FPS",
+                  "-", "{}m:{}s".format(int(mins), round(sec) ),
+                  end="\r", flush=True
+                  )
             fps_start_time = time.time()
         
         count += 1
-        
+        if count == 300:
+            break
+    
     video_out.release()
 
 
