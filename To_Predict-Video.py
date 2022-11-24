@@ -130,6 +130,7 @@ fps_start_time = time.time()
 
 color_list =['green', 'red', 'blue', 'magenta', 'orange', 'cyan', 'lime', 'turquoise', 'yellow']
 pred_dict = {}
+close_counters = 0
 ii = 0
 for video_name in os.listdir(TO_PREDICT_PATH):
     video_path = os.path.join(TO_PREDICT_PATH, video_name)
@@ -178,13 +179,19 @@ for video_name in os.listdir(TO_PREDICT_PATH):
         
         
         labels_found = []
+        machine_list = []
+        prev_machine_list = []
+        
+        dieCoordinates_temp = dieCoordinates.detach().clone()
+        center_machine_list = []
+        active_machine_list = []
         
         ppl_coordinates = dieCoordinates[die_class_indexes == 3]
         machine_base_coordinates = dieCoordinates[die_class_indexes == 1]
         machine_whole_coordinates = dieCoordinates[die_class_indexes == 2]
         
         # Sees if person close to machine base
-        # ---------------------------------------------------------------------
+        # ---------------------------START--------------------------------------
         for index, class_index in enumerate(die_class_indexes):
             if class_index == 3: # If class is person
                 left_coordinate_person = dieCoordinates[index][0]
@@ -230,6 +237,7 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                     
                     if is_person_close:
                         labels_found.append("CAUTION")
+                        close_counters += 1
                         break
                 
                 if is_person_close == False:
@@ -239,8 +247,70 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                     dieCoordinates[index] = 0
                 
                 labels_found.append( str(classes_1[class_index]) )
+            
+            
+            # Sees if machine is active
+            # ---------------------------START--------------------------------------
+            if class_index == 2: # If class is machine-whole
+                left_coord_machine = dieCoordinates_temp[index][0]
+                right_coord_machine = dieCoordinates_temp[index][2]
+                mid_hor_coord_machine = left_coord_machine + (right_coord_machine-left_coord_machine)/2
+                top_coord_machine = dieCoordinates_temp[index][1]
+                bottom_coord_machine = dieCoordinates_temp[index][3]
+                mid_ver_coord_machine = top_coord_machine + (bottom_coord_machine-top_coord_machine)/2
+                
+                center_machine_list.append([mid_hor_coord_machine, mid_ver_coord_machine, index])
         
-        # ---------------------------------------------------------------------
+        if count == 1:
+            # Copies over center_machine_list while detaching/decloning it
+            prev_center_machine_list = []
+            for info in center_machine_list:
+                temp_list = []
+                for index_temp_2, info_sub in enumerate(info):
+                    if index_temp_2 < 2:
+                        temp_list.append(info_sub.detach().clone())
+                    else:
+                        temp_list.append(info_sub)
+                
+                prev_center_machine_list.append(temp_list)
+        else:
+            # Checks to see if bounding box matches with previous frames and if it has moved
+            for center_machine in center_machine_list:
+                is_active = False
+                
+                for prev_center_machine in prev_center_machine_list:
+                    diff_hor = (center_machine[0] - prev_center_machine[0])
+                    diff_ver = (center_machine[1] - prev_center_machine[1])
+                    # Checks to see if the same machine as in previous frame
+                    if diff_hor < 150 and diff_ver < 150:
+                        # If slight movement, then active
+                        if diff_hor > 75 or diff_ver > 75:
+                            is_active = True
+                            break
+                
+                if is_active:
+                    active_machine_list.append([center_machine[2], "Active", 
+                        center_machine[0], center_machine[1]]) # [index, "Active", mid_hor_coord_machine, mid_ver_coord_machine]
+                else:
+                    active_machine_list.append([center_machine[2], "Inactive", 
+                        center_machine[0], center_machine[1]]) # [index, "Active", mid_hor_coord_machine, mid_ver_coord_machine]
+                
+                # Copies over center_machine_list while detaching/decloning it
+                prev_center_machine_list = []
+                for info in center_machine_list:
+                    temp_list = []
+                    for index_temp_2, info_sub in enumerate(info):
+                        if index_temp_2 < 2:
+                            temp_list.append(info_sub.detach().clone())
+                        else:
+                            temp_list.append(info_sub)
+                    
+                    prev_center_machine_list.append(temp_list)
+                
+            # -----------------------------END-------------------------------------
+        
+        # -----------------------------END-------------------------------------
+        
         
         predicted_image = draw_bounding_boxes(transformed_image,
             boxes = dieCoordinates,
@@ -249,6 +319,14 @@ for video_name in os.listdir(TO_PREDICT_PATH):
             font = "arial.ttf",
             font_size = 10
             )
+        
+        # Darkens section of video for text placement
+        predicted_image[:,
+                        :(50+30*5),
+                        predicted_image.shape[2]-320:-1] = ( 
+            (predicted_image[:,
+                             :(50+30*5),
+                             predicted_image.shape[2]-320:-1]/3).type(torch.uint8) )
         
         predicted_image_cv2 = predicted_image.permute(1,2,0).contiguous().numpy()
         predicted_image_cv2 = cv2.cvtColor(predicted_image_cv2, cv2.COLOR_RGB2BGR)
@@ -265,7 +343,7 @@ for video_name in os.listdir(TO_PREDICT_PATH):
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.8
         color = (0, 0, 255)
-        thickness = 2
+        thickness = 1
         
         # Writes text: workers in frame
         text = "Workers in Frame: " + str(workers_in_frame_list[-1])
@@ -283,6 +361,18 @@ for video_name in os.listdir(TO_PREDICT_PATH):
         text = "Avg Workers: " + str(avg_workers)
         writes_text(text, 3, font, font_scale, color, thickness)
         
+        # Writes person close counters to machines
+        text = "Close Counter Instances: " + str(close_counters)
+        writes_text(text, 4, font, font_scale, color, thickness)
+        
+        # Writes active machines
+        active_machine_count = 0
+        for active_machine in active_machine_list:
+            if active_machine[1] == "Active":
+                active_machine_count += 1
+        text = "Active Machines: " + str(active_machine_count)
+        writes_text(text, 5, font, font_scale, color, thickness)
+        
         # ----------------------------End--------------------------------------
         
         
@@ -295,9 +385,9 @@ for video_name in os.listdir(TO_PREDICT_PATH):
             start_point_text = (start_point[0], max(start_point[1]-5,0) )
             font = cv2.FONT_HERSHEY_SIMPLEX
             if "CAUTION" in text:
-                color = (0, 0, 255)
+                color = (0, 100, 255)
                 fontScale = 0.60
-                thickness = 1
+                thickness = 2
             else:
                 if text != "Person" and text != "Machinery-Base":
                     text = ""
@@ -310,6 +400,17 @@ for video_name in os.listdir(TO_PREDICT_PATH):
             
             cv2.putText(predicted_image_cv2, text, 
                         start_point_text, font, fontScale, color, thickness)
+        
+        # Writes active on machineas that are moving
+        for active_machine in active_machine_list:
+            if active_machine[1] == "Active":
+                dieCoordinates_temp[active_machine[0]]
+                mid_x = int(active_machine[2])
+                mix_y = int(active_machine[3])
+                
+                cv2.putText(predicted_image_cv2, "Active", (mid_x, mix_y), 
+                            font, 0.6, (0,255,100), 2)
+            
         
         # Saves video with bounding boxes
         video_out.write(predicted_image_cv2)
