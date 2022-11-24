@@ -29,7 +29,7 @@ SAVE_ANNOTATED_IMAGES   = True
 SAVE_CROPPED_IMAGES     = False
 MIN_SCORE               = 0.6
 NUMBER_TO_RUN = 1000
-FRAMES_TO_SKIP = 500
+FRAMES_TO_SKIP = 109
 
 
 def time_convert(sec):
@@ -283,6 +283,7 @@ for video_index, video_name in enumerate(os.listdir(TO_PREDICT_PATH) ):
             print("  " + str(ii) + " of " + str(len(os.listdir(TO_PREDICT_PATH))))
     
         # ==================================================================================
+    video_out.release()
 
 
 # Creating JSON section

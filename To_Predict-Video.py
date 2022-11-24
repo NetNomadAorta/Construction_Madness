@@ -13,11 +13,12 @@ from pycocotools.coco import COCO
 # Now, we will define our transforms
 from albumentations.pytorch import ToTensorV2
 import shutil
+from math import sqrt
 
 
 # User parameters
 SAVE_NAME_OD = "./Models/Construction.model"
-DATASET_PATH = "./Training_Data/" + SAVE_NAME_OD.split("./Models/",1)[1].split("-",1)[0] +"/"
+DATASET_PATH = "./Training_Data/" + SAVE_NAME_OD.split("./Models/",1)[1].split(".model",1)[0] +"/"
 TO_PREDICT_PATH         = "./Images/Prediction_Images/To_Predict/"
 PREDICTED_PATH          = "./Images/Prediction_Images/Predicted_Images/"
 SAVE_ANNOTATED_IMAGES   = True
@@ -61,6 +62,11 @@ def make_appropriate_directory():
 def makeDir(dir, classes_2):
     for classIndex, className in enumerate(classes_2):
         os.makedirs(dir + className, exist_ok=True)
+
+
+def hypotenuse(a, b):
+    c = sqrt(a**2 + b**2)
+    return c
 
 
 
@@ -132,6 +138,7 @@ for video_name in os.listdir(TO_PREDICT_PATH):
     # Video frame count and fps needed for VideoWriter settings
     frame_count = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
     video_fps = round( video_capture.get(cv2.CAP_PROP_FPS) )
+    video_fps = int(video_fps/4)
     
     # If successful and image of frame
     success, image_b4_color = video_capture.read()
@@ -170,26 +177,98 @@ for video_name in os.listdir(TO_PREDICT_PATH):
         # BELOW SHOWS SCORES - COMMENT OUT IF NEEDED
         die_scores = pred_1['scores'][pred_1['scores'] > MIN_SCORE]
         
-        # labels_found = [str(int(die_scores[index]*100)) + "% - " + str(classes_1[class_index]) 
-        #                 for index, class_index in enumerate(die_class_indexes)]
-        labels_found = [str(classes_1[class_index]) 
-                        for index, class_index in enumerate(die_class_indexes)]
         
-        boxes_widened = dieCoordinates
-        # Widens boxes
-        for i in range(len(dieCoordinates)):
-            box_width = dieCoordinates[i,2]-dieCoordinates[i,0]
-            box_height = dieCoordinates[i,3]-dieCoordinates[i,1]
-            
-            # Width
-            boxes_widened[i, 0] = max(dieCoordinates[i][0] - int(box_width/3), 0)
-            boxes_widened[i, 2] = min(dieCoordinates[i][2] + int(box_width/3), transformed_image.shape[2])
-            
-            # Height
-            boxes_widened[i, 1] = max(dieCoordinates[i][1] - int(box_height/3), 0)
-            boxes_widened[i, 3] = min(dieCoordinates[i][3] + int(box_height/3), transformed_image.shape[1])
+        labels_found = []
         
-        dieCoordinates = boxes_widened
+        ppl_coordinates = dieCoordinates[die_class_indexes == 3]
+        machine_base_coordinates = dieCoordinates[die_class_indexes == 1]
+        machine_whole_coordinates = dieCoordinates[die_class_indexes == 2]
+        
+        # Sees if person close to machine base
+        for index, class_index in enumerate(die_class_indexes):
+            if class_index == 3: # If class is person
+                left_coordinate_person = dieCoordinates[index][0]
+                right_coordinate_person = dieCoordinates[index][2]
+                mid_x_coordinate_person = right_coordinate_person-left_coordinate_person
+                bottom_coordinate_person = dieCoordinates[index][3]
+                person_height = int(dieCoordinates[index][1] - bottom_coordinate_person)
+                
+                is_person_close = False
+                
+                for machine_base_coordinate in machine_base_coordinates:
+                    left_coordinate_machine = machine_base_coordinate[0]
+                    right_coordinate_machine = machine_base_coordinate[2]
+                    top_coordinate_machine = machine_base_coordinate[1]
+                    bottom_coordinate_machine = machine_base_coordinate[3]
+                    mid_vert_coord_machine = (top_coordinate_machine - bottom_coordinate_machine)/2
+                    
+                    
+                    dist_ppl_mchn_left = left_coordinate_person - right_coordinate_machine
+                    dist_ppl_mchn_right = left_coordinate_machine - right_coordinate_person
+                    dist_ppl_mchn_mid_left = left_coordinate_machine - mid_x_coordinate_person
+                    dist_ppl_mchn_mid_right = mid_x_coordinate_person - right_coordinate_machine
+                    dist_ppl_mchn_top = top_coordinate_machine - bottom_coordinate_person
+                    dist_ppl_mchn_bottom = bottom_coordinate_person - bottom_coordinate_machine
+                    
+                    if (dist_ppl_mchn_left < 0
+                        and dist_ppl_mchn_right < 0
+                        and dist_ppl_mchn_top < 0
+                        and dist_ppl_mchn_bottom < 0
+                        ):
+                        is_person_close = True
+                    else:
+                        
+                        if (dist_ppl_mchn_left < 0
+                            and dist_ppl_mchn_right < 0
+                            ):
+                            dist_ppl_mchn_left = 0
+                            dist_ppl_mchn_right = 0
+                            dist_ppl_mchn_mid_left = 0
+                            dist_ppl_mchn_mid_right = 0
+                        
+                        if (dist_ppl_mchn_top < 0
+                            and dist_ppl_mchn_bottom < 0
+                            ):
+                            dist_ppl_mchn_top = 0
+                            dist_ppl_mchn_bottom = 0
+                        
+                        # hypotenuse or distance between machine base and person's 
+                        #  feet is related to c^2 = a^2 + b^2
+                        hypotenuse_left = hypotenuse( 
+                            abs(dist_ppl_mchn_left), 
+                            abs(mid_vert_coord_machine - bottom_coordinate_person)
+                            )
+                        hypotenuse_right = hypotenuse( 
+                            abs(dist_ppl_mchn_right), 
+                            abs(mid_vert_coord_machine - bottom_coordinate_person)
+                            )
+                        hypotenuse_top = hypotenuse( 
+                            abs(dist_ppl_mchn_mid_left), 
+                            abs(dist_ppl_mchn_top)
+                            )
+                        hypotenuse_bottom = hypotenuse( 
+                            abs(dist_ppl_mchn_mid_right), 
+                            abs(dist_ppl_mchn_bottom)
+                            )
+                        
+                        min_hypotenuse = min(hypotenuse_left, hypotenuse_right,
+                                             hypotenuse_top, hypotenuse_bottom)
+                    
+                    
+                        if min_hypotenuse < person_height:
+                            is_person_close = True
+                    
+                    if is_person_close:
+                        labels_found.append("Person TOO CLOSE")
+                        break
+                
+                if is_person_close == False:
+                    labels_found.append( str(classes_1[class_index]) )
+            else:
+                labels_found.append( str(classes_1[class_index]) )
+        
+        
+        
         
         if SAVE_ANNOTATED_IMAGES:
             predicted_image = draw_bounding_boxes(transformed_image,
@@ -214,8 +293,14 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                 
                 start_point_text = (start_point[0], max(start_point[1]-5,0) )
                 font = cv2.FONT_HERSHEY_SIMPLEX
-                fontScale = 1.0
-                thickness = 2
+                if labels_found[dieCoordinate_index] == "Person TOO CLOSE":
+                    color = (0, 0, 255)
+                    fontScale = 0.60
+                    thickness = 2
+                else:
+                    color = (255, 255, 255)
+                    fontScale = 0.30
+                    thickness = 1
                 cv2.putText(predicted_image_cv2, labels_found[dieCoordinate_index], 
                             start_point_text, font, fontScale, color, thickness)
             
