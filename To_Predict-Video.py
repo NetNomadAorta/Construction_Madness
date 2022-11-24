@@ -284,7 +284,7 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                     # Checks to see if the same machine as in previous frame
                     if diff_hor < 150 and diff_ver < 150:
                         # If slight movement, then active
-                        if diff_hor > 75 or diff_ver > 75:
+                        if diff_hor > 30 or diff_ver > 30:
                             is_active = True
                             break
                 
@@ -322,10 +322,10 @@ for video_name in os.listdir(TO_PREDICT_PATH):
         
         # Darkens section of video for text placement
         predicted_image[:,
-                        :(50+30*5),
+                        :(50+30*6),
                         predicted_image.shape[2]-320:-1] = ( 
             (predicted_image[:,
-                             :(50+30*5),
+                             :(50+30*6),
                              predicted_image.shape[2]-320:-1]/3).type(torch.uint8) )
         
         predicted_image_cv2 = predicted_image.permute(1,2,0).contiguous().numpy()
@@ -362,7 +362,7 @@ for video_name in os.listdir(TO_PREDICT_PATH):
         writes_text(text, 3, font, font_scale, color, thickness)
         
         # Writes person close counters to machines
-        text = "Close Counter Instances: " + str(close_counters)
+        text = "Close Counters: " + str(close_counters)
         writes_text(text, 4, font, font_scale, color, thickness)
         
         # Writes active machines
