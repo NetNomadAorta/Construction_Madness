@@ -29,7 +29,7 @@ SAVE_ANNOTATED_IMAGES   = True
 SAVE_CROPPED_IMAGES     = False
 MIN_SCORE               = 0.6
 NUMBER_TO_RUN = 1000
-FRAMES_TO_SKIP = 109
+FRAMES_TO_SKIP = 59
 
 
 def time_convert(sec):
