@@ -126,14 +126,14 @@ image_heights = []
 image_widths = []
 
 # For Json file
-die_index = -1
-die_ids = []
-die_image_ids = []
+index = -1
+ids = []
+image_ids = []
 category_id = []
 bboxes = np.zeros([1, 4], np.int32)
 bbox_areas = []
-die_segmentations = []
-die_iscrowd = []
+segmentations = []
+iscrowd = []
 
 # From object detection "To_Predict"
 color_list =['green', 'red', 'magenta', 'blue', 'orange', 'cyan', 'lime', 'turquoise', 'yellow']
@@ -208,25 +208,25 @@ for video_index, video_name in enumerate(os.listdir(TO_PREDICT_PATH) ):
             prediction_1 = model_1([(transformed_image/255).to(device)])
             pred_1 = prediction_1[0]
         
-        dieCoordinates = pred_1['boxes'][pred_1['scores'] > MIN_SCORE]
-        die_class_indexes = pred_1['labels'][pred_1['scores'] > MIN_SCORE].tolist()
+        coordinates = pred_1['boxes'][pred_1['scores'] > MIN_SCORE]
+        class_indexes = pred_1['labels'][pred_1['scores'] > MIN_SCORE].tolist()
         # BELOW SHOWS SCORES - COMMENT OUT IF NEEDED
-        die_scores = pred_1['scores'][pred_1['scores'] > MIN_SCORE].tolist()
-        labels_found = [classes_1[i] for i in die_class_indexes]
+        scores = pred_1['scores'][pred_1['scores'] > MIN_SCORE].tolist()
+        labels_found = [classes_1[i] for i in class_indexes]
         
         if SAVE_ANNOTATED_IMAGES:
             predicted_image = draw_bounding_boxes(transformed_image,
-                boxes = dieCoordinates,
-                # labels = [classes_1[i] for i in die_class_indexes], 
-                labels = [str(round(i,2)) for i in die_scores], # SHOWS SCORE IN LABEL
+                boxes = coordinates,
+                # labels = [classes_1[i] for i in class_indexes], 
+                labels = [str(round(i,2)) for i in scores], # SHOWS SCORE IN LABEL
                 width = line_width,
-                colors = [color_list[i] for i in die_class_indexes],
+                colors = [color_list[i] for i in class_indexes],
                 font = "arial.ttf",
                 font_size = 20
                 )
             
             # Saves full image with bounding boxes
-            if len(die_class_indexes) != 0:
+            if len(class_indexes) != 0:
                 save_image((predicted_image/255), PREDICTED_PATH + image_name)
             
             # save_image((predicted_image/255), PREDICTED_PATH + image_name)
@@ -234,16 +234,16 @@ for video_index, video_name in enumerate(os.listdir(TO_PREDICT_PATH) ):
         
         # SAVE_CROPPED_IMAGES Section
         # --------------------------------------------------------------
-        dieNames = []
-        box_count = 0 # Number of boxes made per full 100-die image
+        names = []
+        box_count = 0 # Number of boxes made per full 100-objects image
         
-        # Changes column names in dieNames
-        for box_index in range(len(dieCoordinates)):
+        # Changes column names in names
+        for box_index in range(len(coordinates)):
             limiter = 0
-            x1 = max( int( dieCoordinates[box_index][0] ), limiter)
-            y1 = max( int( dieCoordinates[box_index][1] ), limiter)
-            x2 = min( int( dieCoordinates[box_index][2] ), transformed_image.shape[2]-limiter)
-            y2 = min( int( dieCoordinates[box_index][3] ), transformed_image.shape[1]-limiter)
+            x1 = max( int( coordinates[box_index][0] ), limiter)
+            y1 = max( int( coordinates[box_index][1] ), limiter)
+            x2 = min( int( coordinates[box_index][2] ), transformed_image.shape[2]-limiter)
+            y2 = min( int( coordinates[box_index][3] ), transformed_image.shape[1]-limiter)
             
             bbox_width = x2 - x1
             bbox_height = y2 - y1
@@ -252,17 +252,17 @@ for video_index, video_name in enumerate(os.listdir(TO_PREDICT_PATH) ):
             box_count += 1
             
             # JSON info
-            die_index += 1
-            die_ids.append(die_index)
-            die_image_ids.append(image_ids[-1]) # image_id to place in annotations category
-            category_id.append(die_class_indexes[box_index])
-            if die_index == 0:
+            index += 1
+            ids.append(index)
+            image_ids.append(image_ids[-1]) # image_id to place in annotations category
+            category_id.append(class_indexes[box_index])
+            if index == 0:
                 bboxes[-1] = np.array([x1, y1, bbox_width, bbox_height], ndmin=2)
             else:
                 bboxes = np.append(bboxes, [[x1, y1, bbox_width, bbox_height]], axis=0)
             bbox_areas.append(bbox_area)
-            die_segmentations.append([])
-            die_iscrowd.append(0)
+            segmentations.append([])
+            iscrowd.append(0)
         # --------------------------------------------------------------
         
         # =========================================================================
@@ -356,23 +356,23 @@ for image_index in image_ids:
 
 
 # Updates "annotations" section oc coco.json
-for die_index in die_ids:
-    if die_index == 0:
+for index in ids:
+    if index == 0:
         to_update_with = {
             "annotations": [
                 {
-                    "id": die_index,
-                    "image_id": die_image_ids[die_index],
-                    "category_id": category_id[die_index],
+                    "id": index,
+                    "image_id": image_ids[index],
+                    "category_id": category_id[index],
                     "bbox": [
-                        int(bboxes[die_index][0]),
-                        int(bboxes[die_index][1]),
-                        int(bboxes[die_index][2]),
-                        int(bboxes[die_index][3])
+                        int(bboxes[index][0]),
+                        int(bboxes[index][1]),
+                        int(bboxes[index][2]),
+                        int(bboxes[index][3])
                     ],
-                    "area": bbox_areas[die_index],
-                    "segmentation": die_segmentations[die_index],
-                    "iscrowd": die_iscrowd[die_index]
+                    "area": bbox_areas[index],
+                    "segmentation": segmentations[index],
+                    "iscrowd": iscrowd[index]
                 }
             ]
         }
@@ -382,18 +382,18 @@ for die_index in die_ids:
     else:
         to_update_with = {
             "annotations": {
-                    "id": die_index,
-                    "image_id": die_image_ids[die_index],
-                    "category_id": category_id[die_index],
+                    "id": index,
+                    "image_id": image_ids[index],
+                    "category_id": category_id[index],
                     "bbox": [
-                        int(bboxes[die_index][0]),
-                        int(bboxes[die_index][1]),
-                        int(bboxes[die_index][2]),
-                        int(bboxes[die_index][3])
+                        int(bboxes[index][0]),
+                        int(bboxes[index][1]),
+                        int(bboxes[index][2]),
+                        int(bboxes[index][3])
                     ],
-                    "area": bbox_areas[die_index],
-                    "segmentation": die_segmentations[die_index],
-                    "iscrowd": die_iscrowd[die_index]
+                    "area": bbox_areas[index],
+                    "segmentation": segmentations[index],
+                    "iscrowd": iscrowd[index]
             }
         }
         
