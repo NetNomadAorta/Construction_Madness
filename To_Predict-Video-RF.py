@@ -16,6 +16,10 @@ from albumentations.pytorch import ToTensorV2
 import shutil
 from math import sqrt
 import numpy as np
+from PIL import Image
+import io
+import requests
+from requests_toolbelt.multipart.encoder import MultipartEncoder
 
 
 # User parameters
@@ -24,6 +28,8 @@ DATASET_PATH = "./Training_Data/" + SAVE_NAME_OD.split("./Models/",1)[1].split("
 TO_PREDICT_PATH         = "./Images/Prediction_Images/To_Predict/"
 PREDICTED_PATH          = "./Images/Prediction_Images/Predicted_Images/"
 MIN_SCORE               = 0.6 # Default 0.5
+ROBOFLOW_MODEL          = "construction_madness/12"
+ROBOFLOW_API_KEY        = "kAGiAjfXg1MNA0NfST4F"
 
 
 def time_convert(sec):
@@ -63,10 +69,10 @@ def makeDir(dir, classes_2):
 
 
 def writes_text(text, start_point_index, font, font_scale, color, thickness):
-    start_point = (predicted_image_cv2.shape[1]-300, 
+    start_point = (image_b4_color.shape[1]-300, 
                    50 + 30*start_point_index
                    )
-    cv2.putText(predicted_image_cv2, text,  start_point, 
+    cv2.putText(image_b4_color, text,  start_point, 
                 font, font_scale, color, thickness)
 
 
@@ -91,34 +97,10 @@ n_classes = len(categories.keys())
 classes = [i[1]['name'] for i in categories.items()]
 
 
-
-# lets load the faster rcnn model
-model = models.detection.fasterrcnn_resnet50_fpn(pretrained=True
-                                                   )
-in_features = model.roi_heads.box_predictor.cls_score.in_features # we need to change the head
-model.roi_heads.box_predictor = models.detection.faster_rcnn.FastRCNNPredictor(in_features, n_classes)
-
-
-# Loads last saved checkpoint
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 if torch.cuda.is_available():
     map_location=lambda storage, loc: storage.cuda()
 else:
     map_location='cpu'
-
-if os.path.isfile(SAVE_NAME_OD):
-    checkpoint = torch.load(SAVE_NAME_OD, map_location=map_location)
-    model.load_state_dict(checkpoint)
-
-model = model.to(device)
-
-model.eval()
-torch.cuda.empty_cache()
-
-transforms = A.Compose([
-    ToTensorV2()
-])
 
 
 # Start FPS timer
@@ -156,43 +138,76 @@ for video_name in os.listdir(TO_PREDICT_PATH):
         if not success:
             break
         
+        # Inference through Roboflow section
+        # -----------------------------------------------------------------------------
+        # Load Image with PIL
         image = cv2.cvtColor(image_b4_color, cv2.COLOR_BGR2RGB)
+        pilImage = Image.fromarray(image)
         
-        transformed_image = transforms(image=image)
-        transformed_image = transformed_image["image"]
+        # Convert to JPEG Buffer
+        buffered = io.BytesIO()
+        pilImage.save(buffered, quality=100, format="JPEG")
         
-        if ii == 0:
-            line_width = max(round(transformed_image.shape[1] * 0.002), 1)
+        # Construct the URL
+        upload_url = "".join([
+            "https://detect.roboflow.com/",
+            ROBOFLOW_MODEL,
+            "?api_key=",
+            ROBOFLOW_API_KEY,
+            "&confidence=",
+            str(MIN_SCORE)
+            # "&format=image",
+            # "&stroke=5"
+        ])
         
-        with torch.no_grad():
-            prediction = model([(transformed_image/255).to(device)])
-            pred = prediction[0]
+        # Build multipart form and post request
+        m = MultipartEncoder(fields={'file': ("imageToUpload", buffered.getvalue(), "image/jpeg")})
         
-        coordinates = pred['boxes'][pred['scores'] > MIN_SCORE]
-        class_indexes = pred['labels'][pred['scores'] > MIN_SCORE]
-        # BELOW SHOWS SCORES - COMMENT OUT IF NEEDED
-        scores = pred['scores'][pred['scores'] > MIN_SCORE]
+        response = requests.post(upload_url, 
+                                 data=m, 
+                                 headers={'Content-Type': m.content_type},
+                                 )
         
+        predictions = response.json()['predictions']
+        # -----------------------------------------------------------------------------
         
+        # Creates lists from inferenced frames
+        coordinates = []
         labels_found = []
+        confidence_level_list = []
+        for prediction in predictions:
+            x1 = prediction['x'] - prediction['width']/2
+            y1 = prediction['y'] - prediction['height']/2
+            x2 = x1 + prediction['width']
+            y2 = y1 + prediction['height']
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+            coordinates.append([x1, y1, x2, y2])
+            
+            label = prediction['class']
+            labels_found.append(label)
+        
+        
+        labels_list = []
         machine_list = []
         prev_machine_list = []
         
-        coordinates_temp = coordinates.detach().clone()
+        coordinates_temp = coordinates.copy()
         center_machine_list = []
         active_machine_list = []
         
-        ppl_coordinates = coordinates[class_indexes == 3]
-        machine_base_coordinates = coordinates[class_indexes == 1]
-        machine_whole_coordinates = coordinates[class_indexes == 2]
+        ppl_coordinates = [coordinates[index] 
+            for index, label in enumerate(labels_found) if label == "Person"]
+        machine_base_coordinates = [coordinates[index] 
+            for index, label in enumerate(labels_found) if label == "Machinery-Base"]
+        machine_whole_coordinates = [coordinates[index] 
+            for index, label in enumerate(labels_found) if label == "Machinery-Whole"]
         
         # Sees if person close to machine base
         # ---------------------------START--------------------------------------
-        for index, class_index in enumerate(class_indexes):
-            if class_index == 3: # If class is person
+        for index, label in enumerate(labels_found):
+            if label == "Person": # If class is person
                 left_coordinate_person = coordinates[index][0]
                 right_coordinate_person = coordinates[index][2]
-                mid_x_coordinate_person = right_coordinate_person-left_coordinate_person
                 top_coordinate_person = coordinates[index][1]
                 bottom_coordinate_person = coordinates[index][3]
                 person_height = int(bottom_coordinate_person - top_coordinate_person)
@@ -218,12 +233,10 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                     min_height = int(min(rect1['y']+rect1['h']-rect2['y'],rect2['y']+rect2['h']-rect1['y']))
                     
                     
-                    # If person's feet within machine-base, then to flag
+                    # If person's feet inside machine-base's bounding box, then to flag
                     if min_width > 0 and min_height > 0:
                         is_person_close = True
-                    
                     else:
-                        
                         hypotenuse = sqrt(min_width**2 + min_height**2)
                         
                         # if person's feet is close to machine-base, then to flag
@@ -232,22 +245,22 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                             
                     
                     if is_person_close:
-                        labels_found.append("CAUTION")
+                        labels_list.append("CAUTION")
                         close_counters += 1
                         break
                 
                 if is_person_close == False:
-                    labels_found.append( str(classes[class_index]) )
+                    labels_list.append( label )
             else:
-                if class_index == 2:
-                    coordinates[index] = 0
+                if label == "Machinery-Whole":
+                    coordinates[index] = [0,0,0,0]
                 
-                labels_found.append( str(classes[class_index]) )
+                labels_list.append( label )
             
             
             # Sees if machine is active
             # ---------------------------START--------------------------------------
-            if class_index == 2: # If class is machine-whole
+            if label == "Machinery-Whole": # If class is machine-whole
                 left_coord_machine = coordinates_temp[index][0]
                 right_coord_machine = coordinates_temp[index][2]
                 mid_hor_coord_machine = left_coord_machine + (right_coord_machine-left_coord_machine)/2
@@ -258,17 +271,8 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                 center_machine_list.append([mid_hor_coord_machine, mid_ver_coord_machine, index])
         
         if count == 1:
-            # Copies over center_machine_list while detaching/decloning it
-            prev_center_machine_list = []
-            for info in center_machine_list:
-                temp_list = []
-                for index_temp_2, info_sub in enumerate(info):
-                    if index_temp_2 < 2:
-                        temp_list.append(info_sub.detach().clone())
-                    else:
-                        temp_list.append(info_sub)
-                
-                prev_center_machine_list.append(temp_list)
+            # Copies over center_machine_list while detaching it
+            prev_center_machine_list = center_machine_list.copy()
         else:
             # Checks to see if bounding box matches with previous frames and if it has moved
             for center_machine in center_machine_list:
@@ -291,42 +295,12 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                     active_machine_list.append([center_machine[2], "Inactive", 
                         center_machine[0], center_machine[1]]) # [index, "Active", mid_hor_coord_machine, mid_ver_coord_machine]
                 
-                # Copies over center_machine_list while detaching/decloning it
-                prev_center_machine_list = []
-                for info in center_machine_list:
-                    temp_list = []
-                    for index_temp_2, info_sub in enumerate(info):
-                        if index_temp_2 < 2:
-                            temp_list.append(info_sub.detach().clone())
-                        else:
-                            temp_list.append(info_sub)
-                    
-                    prev_center_machine_list.append(temp_list)
+                # Copies over center_machine_list while detaching it
+                prev_center_machine_list = center_machine_list.copy()
                 
             # -----------------------------END-------------------------------------
         
         # -----------------------------END-------------------------------------
-        
-        
-        predicted_image = draw_bounding_boxes(transformed_image,
-            boxes = coordinates,
-            width = line_width,
-            colors = [color_list[i] for i in class_indexes],
-            font = "arial.ttf",
-            font_size = 10
-            )
-        
-        # Darkens section of video for text placement
-        predicted_image[:,
-                        :(50+30*6),
-                        predicted_image.shape[2]-320:-1] = ( 
-            (predicted_image[:,
-                             :(50+30*6),
-                             predicted_image.shape[2]-320:-1]/3).type(torch.uint8) )
-        
-        predicted_image_cv2 = predicted_image.permute(1,2,0).contiguous().numpy()
-        predicted_image_cv2 = cv2.cvtColor(predicted_image_cv2, cv2.COLOR_RGB2BGR)
-        
         
         # Gets worker and machinery info
         workers_in_frame_list.append(len(ppl_coordinates))
@@ -371,10 +345,29 @@ for video_name in os.listdir(TO_PREDICT_PATH):
         
         # ----------------------------End--------------------------------------
         
+        # Draws bounding boxes
         
-        # Writes bounding box's (BB) identity text on top left of BB
+        
+        
+        # Draws bounding box's (BB) and Writes BB's identity text on top left of BB
         for coordinate_index, coordinate in enumerate(coordinates):
-            text = labels_found[coordinate_index]
+            # Bounding Box Section
+            # -------------------------------------------------------------
+            start_point = (int(coordinate[0]), int(coordinate[1]) )
+            end_point = (int(coordinate[2]), int(coordinate[3]) )
+            if labels_list[coordinate_index] == "Machinery":
+                color = (255, 0, 0)
+            elif (labels_list[coordinate_index] == "Person" 
+                  or labels_list[coordinate_index] == "CAUTION"):
+                color = (255, 0, 255)
+            thickness = 2
+            cv2.rectangle(image_b4_color, start_point, end_point, color, thickness)
+            # -------------------------------------------------------------
+            
+            
+            # Text Section
+            # -------------------------------------------------------------
+            text = labels_list[coordinate_index]
             start_point = ( int(coordinate[0]), int(coordinate[1]) )
             color = (255, 255, 255)
             
@@ -394,8 +387,9 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                 fontScale = 0.30
                 thickness = 1
             
-            cv2.putText(predicted_image_cv2, text, 
+            cv2.putText(image_b4_color, text, 
                         start_point_text, font, fontScale, color, thickness)
+            # -------------------------------------------------------------
         
         # Writes active on machineas that are moving
         for active_machine in active_machine_list:
@@ -404,12 +398,12 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                 mid_x = int(active_machine[2])
                 mix_y = int(active_machine[3])
                 
-                cv2.putText(predicted_image_cv2, "Active", (mid_x, mix_y), 
+                cv2.putText(image_b4_color, "Active", (mid_x, mix_y), 
                             font, 0.6, (0,255,100), 2)
             
         
         # Saves video with bounding boxes
-        video_out.write(predicted_image_cv2)
+        video_out.write(image_b4_color)
         
         
         tenScale = 10
