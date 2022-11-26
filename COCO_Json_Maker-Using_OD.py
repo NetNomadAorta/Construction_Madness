@@ -26,7 +26,6 @@ DATASET_PATH = "./Training_Data/" + SAVE_NAME_OD.split("./Models/",1)[1].split("
 TO_PREDICT_PATH         = "./Images/Prediction_Images/To_Predict/"
 PREDICTED_PATH          = "./Images/Prediction_Images/Predicted_Images/"
 SAVE_ANNOTATED_IMAGES   = True
-SAVE_CROPPED_IMAGES     = False
 MIN_SCORE               = 0.6
 NUMBER_TO_RUN = 1000
 FRAMES_TO_SKIP = 59
@@ -235,24 +234,20 @@ for video_index, video_name in enumerate(os.listdir(TO_PREDICT_PATH) ):
         
         # SAVE_CROPPED_IMAGES Section
         # --------------------------------------------------------------
-        if len(dieCoordinates) > 0:
-            bbox_width = int(dieCoordinates[0][2]-dieCoordinates[0][0]) 
-            bbox_height = int(dieCoordinates[0][3]-dieCoordinates[0][1])
-            bbox_area = bbox_width * bbox_height
-        
         dieNames = []
         box_count = 0 # Number of boxes made per full 100-die image
         
         # Changes column names in dieNames
         for box_index in range(len(dieCoordinates)):
+            limiter = 0
+            x1 = max( int( dieCoordinates[box_index][0] ), limiter)
+            y1 = max( int( dieCoordinates[box_index][1] ), limiter)
+            x2 = min( int( dieCoordinates[box_index][2] ), transformed_image.shape[2]-limiter)
+            y2 = min( int( dieCoordinates[box_index][3] ), transformed_image.shape[1]-limiter)
             
-            x1 = int( dieCoordinates[box_index][0] )
-            y1 = int( dieCoordinates[box_index][1] )
-            x2 = int( dieCoordinates[box_index][2] )
-            y2 = int( dieCoordinates[box_index][3] )
-            
-            midX = round((x1 + x2)/2)
-            midY = round((y1 + y2)/2)
+            bbox_width = x2 - x1
+            bbox_height = y2 - y1
+            bbox_area = bbox_width * bbox_height
             
             box_count += 1
             
