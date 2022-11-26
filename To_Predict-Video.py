@@ -23,7 +23,7 @@ SAVE_NAME_OD = "./Models/Construction.model"
 DATASET_PATH = "./Training_Data/" + SAVE_NAME_OD.split("./Models/",1)[1].split(".model",1)[0] +"/"
 TO_PREDICT_PATH         = "./Images/Prediction_Images/To_Predict/"
 PREDICTED_PATH          = "./Images/Prediction_Images/Predicted_Images/"
-MIN_SCORE               = 0.6 # Default 0.5
+MIN_SCORE               = 0.55 # Default 0.5
 
 
 def time_convert(sec):
@@ -206,9 +206,9 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                     bottom_coordinate_machine = machine_base_coordinate[3]
                     mid_vert_coord_machine = (top_coordinate_machine - bottom_coordinate_machine)/2
                     
-                    rect1 = {'x':left_coordinate_person, 'y':top_coordinate_person, 
+                    rect1 = {'x':left_coordinate_person, 'y':bottom_coordinate_person, 
                              'w':(right_coordinate_person-left_coordinate_person), 
-                             'h':(bottom_coordinate_person-top_coordinate_person)}
+                             'h':(1)}
                     
                     rect2 = {'x':left_coordinate_machine, 'y':top_coordinate_machine, 
                              'w':(right_coordinate_machine-left_coordinate_machine), 
@@ -436,8 +436,8 @@ for video_name in os.listdir(TO_PREDICT_PATH):
             fps_start_time = time.time()
         
         count += 1
-        if count == 300:
-            break
+        # if count == 300:
+        #     break
     
     video_out.release()
 

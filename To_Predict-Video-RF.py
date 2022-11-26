@@ -1,18 +1,10 @@
 import os
 import sys
-import torch
-from torchvision import models
-import re
 import cv2
-import albumentations as A  # our data augmentation library
 # remove arnings (optional)
 import warnings
 warnings.filterwarnings("ignore")
 import time
-from torchvision.utils import draw_bounding_boxes
-from pycocotools.coco import COCO
-# Now, we will define our transforms
-from albumentations.pytorch import ToTensorV2
 import shutil
 from math import sqrt
 import numpy as np
@@ -23,13 +15,11 @@ from requests_toolbelt.multipart.encoder import MultipartEncoder
 
 
 # User parameters
-SAVE_NAME_OD = "./Models/Construction.model"
-DATASET_PATH = "./Training_Data/" + SAVE_NAME_OD.split("./Models/",1)[1].split(".model",1)[0] +"/"
 TO_PREDICT_PATH         = "./Images/Prediction_Images/To_Predict/"
 PREDICTED_PATH          = "./Images/Prediction_Images/Predicted_Images/"
-MIN_SCORE               = 0.6 # Default 0.5
-ROBOFLOW_MODEL          = "construction_madness/12"
-ROBOFLOW_API_KEY        = "kAGiAjfXg1MNA0NfST4F"
+MIN_SCORE               = 0.5
+ROBOFLOW_MODEL          = "MODEL_NAME/MODEL_VERSION"
+ROBOFLOW_API_KEY        = "API_KEY"
 
 
 def time_convert(sec):
@@ -62,12 +52,6 @@ def make_appropriate_directory():
         os.makedirs("./Training_Data/")
 
 
-# Creates class folder
-def makeDir(dir, classes_2):
-    for classIndex, className in enumerate(classes_2):
-        os.makedirs(dir + className, exist_ok=True)
-
-
 def writes_text(text, start_point_index, font, font_scale, color, thickness):
     start_point = (image_b4_color.shape[1]-300, 
                    50 + 30*start_point_index
@@ -80,39 +64,21 @@ def writes_text(text, start_point_index, font, font_scale, color, thickness):
 # Starting stopwatch to see how long process takes
 start_time = time.time()
 
+# If prediction folders don't exist, create them
 make_appropriate_directory()
 
 # Deletes images already in "Predicted_Images" folder
-deleteDirContents(PREDICTED_PATH)
-
-dataset_path = DATASET_PATH
-
-
-
-#load classes
-coco = COCO(os.path.join(dataset_path, "train", "_annotations.coco.json"))
-categories = coco.cats
-n_classes = len(categories.keys())
-
-classes = [i[1]['name'] for i in categories.items()]
-
-
-if torch.cuda.is_available():
-    map_location=lambda storage, loc: storage.cuda()
-else:
-    map_location='cpu'
+deleteDirContents(PREDICTED_PATH)\
 
 
 # Start FPS timer
 fps_start_time = time.time()
 
-color_list =['green', 'red', 'blue', 'magenta', 'orange', 'cyan', 'lime', 'turquoise', 'yellow']
-pred_dict = {}
-close_counters = 0
+close_counters = 0 # Sum of how many times a person is close to a machine per frame
 ii = 0
+# Goes through each video in TO_PREDICT_PATH
 for video_name in os.listdir(TO_PREDICT_PATH):
     video_path = os.path.join(TO_PREDICT_PATH, video_name)
-    
     
     video_capture = cv2.VideoCapture(video_path)
     
@@ -199,20 +165,18 @@ for video_name in os.listdir(TO_PREDICT_PATH):
             for index, label in enumerate(labels_found) if label == "Person"]
         machine_base_coordinates = [coordinates[index] 
             for index, label in enumerate(labels_found) if label == "Machinery-Base"]
-        machine_whole_coordinates = [coordinates[index] 
-            for index, label in enumerate(labels_found) if label == "Machinery-Whole"]
         
         # Sees if person close to machine base
-        # ---------------------------START--------------------------------------
+        # ---------------------------START-1-------------------------------------
         for index, label in enumerate(labels_found):
-            if label == "Person": # If class is person
+            if label == "Person": 
                 left_coordinate_person = coordinates[index][0]
                 right_coordinate_person = coordinates[index][2]
                 top_coordinate_person = coordinates[index][1]
                 bottom_coordinate_person = coordinates[index][3]
                 person_height = int(bottom_coordinate_person - top_coordinate_person)
                 
-                is_person_close = False
+                is_person_close = False # Presets if person too close to machine-base
                 
                 for machine_base_coordinate in machine_base_coordinates:
                     left_coordinate_machine = machine_base_coordinate[0]
@@ -221,9 +185,10 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                     bottom_coordinate_machine = machine_base_coordinate[3]
                     mid_vert_coord_machine = (top_coordinate_machine - bottom_coordinate_machine)/2
                     
-                    rect1 = {'x':left_coordinate_person, 'y':top_coordinate_person, 
+                    # Gets minimum width and height between person's feet and machine-base
+                    rect1 = {'x':left_coordinate_person, 'y':bottom_coordinate_person+1, 
                              'w':(right_coordinate_person-left_coordinate_person), 
-                             'h':(bottom_coordinate_person-top_coordinate_person)}
+                             'h':(1)}
                     
                     rect2 = {'x':left_coordinate_machine, 'y':top_coordinate_machine, 
                              'w':(right_coordinate_machine-left_coordinate_machine), 
@@ -245,6 +210,7 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                             
                     
                     if is_person_close:
+                        # If person is close to machine-base, then to rename label to "CAUTION"
                         labels_list.append("CAUTION")
                         close_counters += 1
                         break
@@ -252,6 +218,7 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                 if is_person_close == False:
                     labels_list.append( label )
             else:
+                # We do not want "Machinery-Whole" bounding box to show in the video
                 if label == "Machinery-Whole":
                     coordinates[index] = [0,0,0,0]
                 
@@ -259,7 +226,7 @@ for video_name in os.listdir(TO_PREDICT_PATH):
             
             
             # Sees if machine is active
-            # ---------------------------START--------------------------------------
+            # ---------------------------START-2-------------------------------------
             if label == "Machinery-Whole": # If class is machine-whole
                 left_coord_machine = coordinates_temp[index][0]
                 right_coord_machine = coordinates_temp[index][2]
@@ -271,7 +238,8 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                 center_machine_list.append([mid_hor_coord_machine, mid_ver_coord_machine, index])
         
         if count == 1:
-            # Copies over center_machine_list while detaching it
+            # Copies over detached center_machine_list to prevent changes 
+            #  to new one when original changes
             prev_center_machine_list = center_machine_list.copy()
         else:
             # Checks to see if bounding box matches with previous frames and if it has moved
@@ -279,28 +247,36 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                 is_active = False
                 
                 for prev_center_machine in prev_center_machine_list:
+                    # Gets x,y difference in center of bounding box lists 
+                    #  from previous frame to current
                     diff_hor = (center_machine[0] - prev_center_machine[0])
                     diff_ver = (center_machine[1] - prev_center_machine[1])
-                    # Checks to see if the same machine as in previous frame
+                    # Checks to see if the bounding box (BB) of machine in previous 
+                    #  frame matches with current BB list
+                    # Value of 150 is arbitrary. Choose whatever is reasonable
                     if diff_hor < 150 and diff_ver < 150:
-                        # If slight movement, then active
+                        # Now we know that the two BB in list match, let's check
+                        #  to see if there has been slight movement in machine
                         if diff_hor > 30 or diff_ver > 30:
                             is_active = True
                             break
                 
                 if is_active:
+                    # [index, "Active", mid_hor_coord_machine, mid_ver_coord_machine]
                     active_machine_list.append([center_machine[2], "Active", 
-                        center_machine[0], center_machine[1]]) # [index, "Active", mid_hor_coord_machine, mid_ver_coord_machine]
+                        center_machine[0], center_machine[1]]) 
                 else:
+                    # [index, "Active", mid_hor_coord_machine, mid_ver_coord_machine]
                     active_machine_list.append([center_machine[2], "Inactive", 
-                        center_machine[0], center_machine[1]]) # [index, "Active", mid_hor_coord_machine, mid_ver_coord_machine]
+                        center_machine[0], center_machine[1]]) 
                 
-                # Copies over center_machine_list while detaching it
+                # Copies over detached center_machine_list to prevent changes 
+                #  to new one when original changes
                 prev_center_machine_list = center_machine_list.copy()
                 
-            # -----------------------------END-------------------------------------
+            # -----------------------------END-2------------------------------------
         
-        # -----------------------------END-------------------------------------
+        # -----------------------------END-1------------------------------------
         
         # Gets worker and machinery info
         workers_in_frame_list.append(len(ppl_coordinates))
@@ -309,7 +285,7 @@ for video_name in os.listdir(TO_PREDICT_PATH):
         avg_workers = round(np.mean(workers_in_frame_list))
         
         # Writes worker and machinery info on top right of video
-        # ----------------------------Start-----------------------------------
+        # ----------------------------Start-3----------------------------------
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.8
         color = (0, 0, 255)
@@ -343,10 +319,7 @@ for video_name in os.listdir(TO_PREDICT_PATH):
         text = "Active Machines: " + str(active_machine_count)
         writes_text(text, 5, font, font_scale, color, thickness)
         
-        # ----------------------------End--------------------------------------
-        
-        # Draws bounding boxes
-        
+        # ----------------------------End-3-------------------------------------
         
         
         # Draws bounding box's (BB) and Writes BB's identity text on top left of BB
@@ -355,12 +328,12 @@ for video_name in os.listdir(TO_PREDICT_PATH):
             # -------------------------------------------------------------
             start_point = (int(coordinate[0]), int(coordinate[1]) )
             end_point = (int(coordinate[2]), int(coordinate[3]) )
-            if labels_list[coordinate_index] == "Machinery":
+            if labels_list[coordinate_index] == "Machinery-Base":
                 color = (255, 0, 0)
             elif (labels_list[coordinate_index] == "Person" 
                   or labels_list[coordinate_index] == "CAUTION"):
                 color = (255, 0, 255)
-            thickness = 2
+            thickness = 1
             cv2.rectangle(image_b4_color, start_point, end_point, color, thickness)
             # -------------------------------------------------------------
             
@@ -406,8 +379,9 @@ for video_name in os.listdir(TO_PREDICT_PATH):
         video_out.write(image_b4_color)
         
         
+        # Just prints out how fast video is inferencing and how much time left
+        # ---------------------------------------------------------------------
         tenScale = 10
-    
         ii += 1
         if ii % tenScale == 0:
             fps_end_time = time.time()
@@ -428,10 +402,12 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                   end="\r", flush=True
                   )
             fps_start_time = time.time()
+        # ---------------------------------------------------------------------
         
         count += 1
-        if count == 300:
-            break
+        # If you want to stop after so many frames to debug, uncomment below
+        # if count == 300:
+        #     break
     
     video_out.release()
 
