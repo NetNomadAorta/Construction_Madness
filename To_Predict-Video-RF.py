@@ -18,8 +18,8 @@ from requests_toolbelt.multipart.encoder import MultipartEncoder
 TO_PREDICT_PATH         = "./Images/Prediction_Images/To_Predict/"
 PREDICTED_PATH          = "./Images/Prediction_Images/Predicted_Images/"
 MIN_SCORE               = 0.5
-ROBOFLOW_MODEL          = "MODEL_NAME/MODEL_VERSION"
-ROBOFLOW_API_KEY        = "API_KEY"
+ROBOFLOW_MODEL          = "construction_madness/13"
+ROBOFLOW_API_KEY        = "kAGiAjfXg1MNA0NfST4F"
 
 
 def time_convert(sec):
@@ -81,10 +81,13 @@ for video_name in os.listdir(TO_PREDICT_PATH):
     # Video frame count and fps needed for VideoWriter settings
     frame_count = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
     video_fps = round( video_capture.get(cv2.CAP_PROP_FPS) )
-    video_fps = int(video_fps/5)
+    video_fps = int(video_fps/1)
     
     # If successful and image of frame
     success, image_b4_color = video_capture.read()
+    
+    # Darkens part of image where construction info will be displayed
+    image_b4_color[-180:-1 ,-300:-1] = image_b4_color[-180:-1 ,-300:-1] / 2
     
     fourcc = cv2.VideoWriter_fourcc(*'MP4V')
     video_out = cv2.VideoWriter(PREDICTED_PATH + video_name, fourcc, video_fps, 
@@ -400,7 +403,7 @@ for video_name in os.listdir(TO_PREDICT_PATH):
     video_out.release()
 
 
-print("Done!")
+print("\nDone!")
 
 # Stopping stopwatch to see how long process takes
 end_time = time.time()
