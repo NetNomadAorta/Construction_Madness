@@ -18,8 +18,8 @@ from requests_toolbelt.multipart.encoder import MultipartEncoder
 TO_PREDICT_PATH         = "./Images/Prediction_Images/To_Predict/"
 PREDICTED_PATH          = "./Images/Prediction_Images/Predicted_Images/"
 MIN_SCORE               = 0.5
-ROBOFLOW_MODEL          = "MODEL_NAME/MODEL_VERSION"
-ROBOFLOW_API_KEY        = "API_KEY"
+ROBOFLOW_MODEL          = "construction_madness/13"
+ROBOFLOW_API_KEY        = "kAGiAjfXg1MNA0NfST4F"
 
 
 def time_convert(sec):
@@ -205,11 +205,13 @@ for video_name in os.listdir(TO_PREDICT_PATH):
             # Copies over detached center_machine_list to prevent changes 
             #  to new one when original changes
             prev_machine_whole_data_list = machine_whole_data_list.copy()
+            prev_prev_machine_whole_data_list = prev_machine_whole_data_list.copy()
         else:
             # Checks to see if bounding box matches with previous frames and if it has moved
             for machine_whole_data in machine_whole_data_list:
                 is_active = False
                 
+                # Checks last frame if machine active
                 for prev_machine_whole_data in prev_machine_whole_data_list:
                     # Gets x, y difference in center of bounding box lists 
                     #  from previous frame to current
@@ -224,12 +226,30 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                         if diff_hor > 30 or diff_ver > 30:
                             is_active = True
                             break
+                        
+                # If didn't catch any matching, then checks 2 frames ago
+                if not is_active:
+                    for prev_prev_machine_whole_data in prev_prev_machine_whole_data_list:
+                        # Gets x, y difference in center of bounding box lists 
+                        #  from previous frame to current
+                        diff_hor = (machine_whole_data[0] - prev_prev_machine_whole_data[0])
+                        diff_ver = (machine_whole_data[1] - prev_prev_machine_whole_data[1])
+                        # Checks to see if the bounding box (BB) of machine in previous 
+                        #  frame matches with current BB list
+                        # Value of 150 is arbitrary. Choose whatever is reasonable
+                        if diff_hor < 150 and diff_ver < 150:
+                            # Now we know that the two BB in list match, let's check
+                            #  to see if there has been slight movement in machine
+                            if diff_hor > 30 or diff_ver > 30:
+                                is_active = True
+                                break
                 
                 if is_active:
                     machine_whole_data_list[-1][2] = "Active"
                 
             # Copies over detached center_machine_list to prevent changes 
             #  to new one when original changes
+            prev_prev_machine_whole_data_list = prev_machine_whole_data_list.copy()
             prev_machine_whole_data_list = machine_whole_data_list.copy()
         # -----------------------------END-2------------------------------------
         
