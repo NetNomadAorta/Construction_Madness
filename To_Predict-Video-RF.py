@@ -18,8 +18,8 @@ from requests_toolbelt.multipart.encoder import MultipartEncoder
 TO_PREDICT_PATH         = "./Images/Prediction_Images/To_Predict/"
 PREDICTED_PATH          = "./Images/Prediction_Images/Predicted_Images/"
 MIN_SCORE               = 0.5
-ROBOFLOW_MODEL          = "MODEL_NAME/MODEL_VERSION"
-ROBOFLOW_API_KEY        = "API_KEY"
+ROBOFLOW_MODEL          = "construction_madness/13"
+ROBOFLOW_API_KEY        = "kAGiAjfXg1MNA0NfST4F"
 
 
 def time_convert(sec):
@@ -30,7 +30,7 @@ def time_convert(sec):
     print("Time Lapsed = {0}h:{1}m:{2}s".format(int(hours), int(mins), round(sec) ) )
 
 
-def deleteDirContents(dir):
+def delete_dir_contents(dir):
     # Deletes photos in path "dir"
     # # Used for deleting previous cropped photos from last run
     for f in os.listdir(dir):
@@ -64,7 +64,7 @@ start_time = time.time()
 make_appropriate_directory()
 
 # Deletes images already in "Predicted_Images" folder
-deleteDirContents(PREDICTED_PATH)\
+delete_dir_contents(PREDICTED_PATH)\
 
 
 # Start FPS timer
@@ -81,13 +81,10 @@ for video_name in os.listdir(TO_PREDICT_PATH):
     # Video frame count and fps needed for VideoWriter settings
     frame_count = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
     video_fps = round( video_capture.get(cv2.CAP_PROP_FPS) )
-    video_fps = int(video_fps/1)
+    video_fps = int(video_fps/4)
     
     # If successful and image of frame
     success, image_b4_color = video_capture.read()
-    
-    # Darkens part of image where construction info will be displayed
-    image_b4_color[-180:-1 ,-300:-1] = image_b4_color[-180:-1 ,-300:-1] / 2
     
     fourcc = cv2.VideoWriter_fourcc(*'MP4V')
     video_out = cv2.VideoWriter(PREDICTED_PATH + video_name, fourcc, video_fps, 
@@ -102,6 +99,9 @@ for video_name in os.listdir(TO_PREDICT_PATH):
         success, image_b4_color = video_capture.read()
         if not success:
             break
+        
+        # Darkens part of image where construction info will be displayed
+        image_b4_color[0:220 ,-320:-1] = image_b4_color[0:220 ,-320:-1] / 3
         
         # Inference through Roboflow section
         # -----------------------------------------------------------------------------
@@ -226,7 +226,7 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                     if diff_hor < 150 and diff_ver < 150:
                         # Now we know that the two BB in list match, let's check
                         #  to see if there has been slight movement in machine
-                        if diff_hor > 30 or diff_ver > 30:
+                        if diff_hor > 20 or diff_ver > 20:
                             is_active = True
                             break
                         
@@ -397,7 +397,7 @@ for video_name in os.listdir(TO_PREDICT_PATH):
         
         count += 1
         # If you want to stop after so many frames to debug, uncomment below
-        if count == 300:
+        if count == 500:
             break
     
     video_out.release()
