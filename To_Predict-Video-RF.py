@@ -1,9 +1,6 @@
 import os
 import sys
 import cv2
-# remove arnings (optional)
-import warnings
-warnings.filterwarnings("ignore")
 import time
 import shutil
 from math import sqrt
@@ -81,7 +78,7 @@ for video_name in os.listdir(TO_PREDICT_PATH):
     # Video frame count and fps needed for VideoWriter settings
     frame_count = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
     video_fps = round( video_capture.get(cv2.CAP_PROP_FPS) )
-    video_fps = int(video_fps/4)
+    video_fps = int(video_fps/4) # If video too fast /# to slow down
     
     # If successful and image of frame
     success, image_b4_color = video_capture.read()
@@ -137,8 +134,6 @@ for video_name in os.listdir(TO_PREDICT_PATH):
         # -----------------------------------------------------------------------------
         
         # Creates lists from inferenced frames
-        prev_machine_list = []
-        
         data_list = []
         machine_base_data_list = []
         machine_whole_data_list = []
@@ -152,8 +147,8 @@ for video_name in os.listdir(TO_PREDICT_PATH):
             height = prediction['height']
             x1 = midx - width/2
             y1 = midy - height/2
-            x2 = x1 + prediction['width']
-            y2 = y1 + prediction['height']
+            x2 = x1 + width
+            y2 = y1 + height
             x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
             midx, midy = int(midx), int(midy)
             data_list.append([label, x1, y1, x2, y2, midx, midy, width, height])
@@ -174,14 +169,18 @@ for video_name in os.listdir(TO_PREDICT_PATH):
             for machine_base_data in machine_base_data_list:
                 # Gets minimum width and height between person's feet and machine-base
                 rect1 = {'x':person_data[1], 'y':person_data[4]+1, 
-                         'w':person_data[7], 'h':(1)
+                         'w':person_data[7], 'h':(1) # Height 1 to keep BB close to feet
                          }
                 rect2 = {'x':machine_base_data[1], 'y':machine_base_data[2], 
                          'w':machine_base_data[7], 'h':machine_base_data[8]
                          }
                 
-                min_width = int(min(rect1['x']+rect1['w']-rect2['x'],rect2['x']+rect2['w']-rect1['x']))
-                min_height = int(min(rect1['y']+rect1['h']-rect2['y'],rect2['y']+rect2['h']-rect1['y']))
+                min_width = int(min(rect1['x']+rect1['w']-rect2['x'],
+                                    rect2['x']+rect2['w']-rect1['x']
+                                    ))
+                min_height = int(min(rect1['y']+rect1['h']-rect2['y'],
+                                     rect2['y']+rect2['h']-rect1['y']
+                                     ))
                 
                 # If person's feet inside machine-base's bounding box, then to flag
                 if min_width > 0 and min_height > 0:
@@ -199,7 +198,7 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                     person_data_list[index][0] = "CAUTION"
                     close_counters += 1
                     break
-            # -----------------------------END-1------------------------------------
+        # -----------------------------END-1------------------------------------
             
             
         # Sees if machine is active
@@ -209,10 +208,14 @@ for video_name in os.listdir(TO_PREDICT_PATH):
             #  to new one when original changes
             prev_machine_whole_data_list = machine_whole_data_list.copy()
             prev_prev_machine_whole_data_list = prev_machine_whole_data_list.copy()
+            prev_prev_prev_machine_whole_data_list = prev_prev_machine_whole_data_list.copy()
+            prev_3_machine_whole_data_list = prev_prev_prev_machine_whole_data_list.copy()
         else:
             # Checks to see if bounding box matches with previous frames and if it has moved
             for machine_whole_data in machine_whole_data_list:
                 is_active = False
+                pix_lim_same_OD = 200
+                pix_lim_active = 15
                 
                 # Checks last frame if machine active
                 for prev_machine_whole_data in prev_machine_whole_data_list:
@@ -222,11 +225,11 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                     diff_ver = (machine_whole_data[1] - prev_machine_whole_data[1])
                     # Checks to see if the bounding box (BB) of machine in previous 
                     #  frame matches with current BB list
-                    # Value of 150 is arbitrary. Choose whatever is reasonable
-                    if diff_hor < 150 and diff_ver < 150:
+                    # Value of pix_lim_same_OD is arbitrary. Choose whatever is reasonable
+                    if diff_hor < pix_lim_same_OD and diff_ver < pix_lim_same_OD:
                         # Now we know that the two BB in list match, let's check
                         #  to see if there has been slight movement in machine
-                        if diff_hor > 20 or diff_ver > 20:
+                        if diff_hor > pix_lim_active or diff_ver > pix_lim_active:
                             is_active = True
                             break
                         
@@ -239,11 +242,45 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                         diff_ver = (machine_whole_data[1] - prev_prev_machine_whole_data[1])
                         # Checks to see if the bounding box (BB) of machine in previous 
                         #  frame matches with current BB list
-                        # Value of 150 is arbitrary. Choose whatever is reasonable
-                        if diff_hor < 150 and diff_ver < 150:
+                        # Value of pix_lim_same_OD is arbitrary. Choose whatever is reasonable
+                        if diff_hor < pix_lim_same_OD and diff_ver < pix_lim_same_OD:
                             # Now we know that the two BB in list match, let's check
                             #  to see if there has been slight movement in machine
-                            if diff_hor > 30 or diff_ver > 30:
+                            if diff_hor > pix_lim_active or diff_ver > pix_lim_active:
+                                is_active = True
+                                break
+                            
+                # If didn't catch any matching, then checks 3 frames ago
+                if not is_active:
+                    for prev_prev_prev_machine_whole_data in prev_prev_prev_machine_whole_data_list:
+                        # Gets x, y difference in center of bounding box lists 
+                        #  from previous frame to current
+                        diff_hor = (machine_whole_data[0] - prev_prev_prev_machine_whole_data[0])
+                        diff_ver = (machine_whole_data[1] - prev_prev_prev_machine_whole_data[1])
+                        # Checks to see if the bounding box (BB) of machine in previous 
+                        #  frame matches with current BB list
+                        # Value of pix_lim_same_OD is arbitrary. Choose whatever is reasonable
+                        if diff_hor < pix_lim_same_OD and diff_ver < pix_lim_same_OD:
+                            # Now we know that the two BB in list match, let's check
+                            #  to see if there has been slight movement in machine
+                            if diff_hor > pix_lim_active or diff_ver > pix_lim_active:
+                                is_active = True
+                                break
+                            
+                # If didn't catch any matching, then checks 4 frames ago
+                if not is_active:
+                    for prev_3_machine_whole_data in prev_3_machine_whole_data_list:
+                        # Gets x, y difference in center of bounding box lists 
+                        #  from previous frame to current
+                        diff_hor = (machine_whole_data[0] - prev_3_machine_whole_data[0])
+                        diff_ver = (machine_whole_data[1] - prev_3_machine_whole_data[1])
+                        # Checks to see if the bounding box (BB) of machine in previous 
+                        #  frame matches with current BB list
+                        # Value of pix_lim_same_OD is arbitrary. Choose whatever is reasonable
+                        if diff_hor < pix_lim_same_OD and diff_ver < pix_lim_same_OD:
+                            # Now we know that the two BB in list match, let's check
+                            #  to see if there has been slight movement in machine
+                            if diff_hor > pix_lim_active or diff_ver > pix_lim_active:
                                 is_active = True
                                 break
                 
@@ -252,6 +289,8 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                 
             # Copies over detached center_machine_list to prevent changes 
             #  to new one when original changes
+            prev_3_machine_whole_data_list = prev_prev_prev_machine_whole_data_list.copy()
+            prev_prev_prev_machine_whole_data_list = prev_prev_machine_whole_data_list.copy()
             prev_prev_machine_whole_data_list = prev_machine_whole_data_list.copy()
             prev_machine_whole_data_list = machine_whole_data_list.copy()
         # -----------------------------END-2------------------------------------
@@ -296,7 +335,6 @@ for video_name in os.listdir(TO_PREDICT_PATH):
                 active_machine_count += 1
         text = "Active Machines: " + str(active_machine_count)
         writes_text(text, 5, font, font_scale, color, thickness)
-        
         # ----------------------------End-3-------------------------------------
         
         
