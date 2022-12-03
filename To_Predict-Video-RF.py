@@ -18,8 +18,8 @@ from requests_toolbelt.multipart.encoder import MultipartEncoder
 TO_PREDICT_PATH         = "./Images/Prediction_Images/To_Predict/"
 PREDICTED_PATH          = "./Images/Prediction_Images/Predicted_Images/"
 MIN_SCORE               = 0.5
-ROBOFLOW_MODEL          = "construction_madness/13"
-ROBOFLOW_API_KEY        = "kAGiAjfXg1MNA0NfST4F"
+ROBOFLOW_MODEL          = "MODEL_NAME/MODEL_VERSION"
+ROBOFLOW_API_KEY        = "API_KEY"
 
 
 def time_convert(sec):
