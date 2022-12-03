@@ -23,7 +23,7 @@ SAVE_NAME_OD = "./Models/Construction.model"
 DATASET_PATH = "./Training_Data/" + SAVE_NAME_OD.split("./Models/",1)[1].split(".model",1)[0] +"/"
 TO_PREDICT_PATH         = "./Images/Prediction_Images/To_Predict/"
 PREDICTED_PATH          = "./Images/Prediction_Images/Predicted_Images/"
-MIN_SCORE               = 0.55 # Default 0.5
+MIN_SCORE               = 0.6 # Default 0.5
 
 
 def time_convert(sec):
