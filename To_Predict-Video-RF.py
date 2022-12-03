@@ -56,7 +56,8 @@ def writes_text(text, start_point_index, font, font_scale, color, thickness):
                 font, font_scale, color, thickness)
 
 
-
+# Main()
+# =============================================================================
 # Starting stopwatch to see how long process takes
 start_time = time.time()
 
@@ -64,8 +65,7 @@ start_time = time.time()
 make_appropriate_directory()
 
 # Deletes images already in "Predicted_Images" folder
-delete_dir_contents(PREDICTED_PATH)\
-
+delete_dir_contents(PREDICTED_PATH)
 
 # Start FPS timer
 fps_start_time = time.time()
@@ -409,3 +409,5 @@ print("\nDone!")
 end_time = time.time()
 time_lapsed = end_time - start_time
 time_convert(time_lapsed)
+
+# =============================================================================
